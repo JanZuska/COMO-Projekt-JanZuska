@@ -1,0 +1,1 @@
+['Hlavní mìsto Praha', 'Jihoèeský kraj', 'Jihomoravský kraj', 'Karlovarský kraj', 'Kraj Vysoèina', 'Královéhradecký kraj', 'Liberecký kraj', 'Moravskoslezský kraj', 'Olomoucký kraj', 'Pardubický kraj', 'Plzeòský kraj', 'Støedoèeský kraj', 'Ústecký kraj', 'Zlínský kraj']
