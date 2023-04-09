@@ -1,6 +1,5 @@
 import requests as req
 import bs4 as bs
-import json
 
 class Lokality():
     def __init__(self):
