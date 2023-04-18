@@ -16,6 +16,7 @@ import asyncio
 import time
 import threading as th
 import bs4 as bs
+from typing import Union
 # ----------------------------------------------------------------------------
 # 3rd party packeges
 from streamlit.runtime.scriptrunner import add_script_run_ctx
@@ -31,8 +32,10 @@ from api import SearchForQueryValues, SearchQuery
 # Seznam session_states
 session_states_list = [
     {"kraj" : "Hlavní město Praha"},
-    {"x" : 0},
-    {"kill_progress_bar" : False} ]
+    {"progress" : 0},
+    {"kill_progress_bar" : False},
+    {"execute" : False},
+    {"disabled" : False} ]
 
 # Definování session_states, pokud neexistují
 for item in session_states_list:
@@ -40,73 +43,86 @@ for item in session_states_list:
         if key not in st.session_state:
             st.session_state[key] = value
 
-# Funkce
-def ProgressStatus(increment: float) -> None:
-    st.session_state.x += increment
-    print(f"{st.session_state.x}%")
-    return
+# ----------------------------------------------------------------------------
 
-async def FormatHTML(html: str) -> bs.BeautifulSoup:
-    soup = bs.BeautifulSoup(html, "html.parser")
-    return soup
+class Progress():
+    def __init__(self, text) -> None:
+        self.text = text
+        with st.sidebar:
+            self.bar = st.progress(0, text=self.text)
+        self.thread = th.Thread(target = self.WhileRunning)
 
-async def send_request(url, increment) -> str:
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url) as response:
-            ProgressStatus(increment)
-            return await response.text()
+    def Run(self) -> None:
+        self.running = True
+        add_script_run_ctx(self.thread)
+        self.thread.start()
+        return
+
+    def WhileRunning(self) -> None:
+        while self.running:
+            self.bar.progress(int(st.session_state.progress), text=self.text)
+        return
+    
+    def Kill(self) -> None:
+        self.running = False
+        self.bar.progress(100, text=self.text)
+        time.sleep(0.2)
+        self.bar.empty()
+        st.session_state.progress = 0
+        return
+
+    @staticmethod
+    def AddProgress(increment: Union[float, int]) -> None:
+        st.session_state.progress += increment
+        print(f"{st.session_state.progress}%")
+        return
+
+class Functions():
+    @staticmethod
+    def split_list(input_list: list, max_list_size: int = 200) -> list:
+        output_list = []
+        for i in range(0, len(input_list), max_list_size):
+            output_list.append(input_list[i:i + max_list_size])
+        return output_list
+
+class AsynchronousFunctions():
+    @staticmethod
+    async def FormatHTML(html: str) -> bs.BeautifulSoup:
+        soup = bs.BeautifulSoup(html, "html.parser")
+        return soup
+
+    @staticmethod
+    async def send_request(url, increment) -> str:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as response:
+                Progress.AddProgress(increment)
+                return await response.text()
         
-async def process_data(response, n) -> dict:
-    html = await FormatHTML(response)
-    output = {"Adresa" : None, "Cena" : None }
-
-    tag_futures = []
-    for tag, attribute, key in [["a", {"href": "#mapa"}, "Adresa"], ["strong", {"class": "h4"}, "Cena"]]:
-        html_tag = html.find_all(tag, attribute)
-        tag_future = asyncio.ensure_future(loop.run_in_executor(None, html_tag[0].get_text)) if html_tag else None
-        tag_futures.append(tag_future)
-
-    ProgressStatus(n)
-
-    tag_texts = await asyncio.gather(*tag_futures)
-    for key, text in zip(["Adresa", "Cena"], tag_texts):
-        if text:
-            output[key] = text
-
-    nemovitost_parametry = html.select("div.paramsTable")
-    for table in nemovitost_parametry:
-        for element in table.find_all("tr"):
-            th = element.find("th").text
-            td = element.find("td").text
-            output.update({th : td})
-            
-    return output
-
-def split_list(input_list: list, max_list_size: int = 200) -> list:
-    output_list = []
-    for i in range(0, len(input_list), max_list_size):
-        output_list.append(input_list[i:i + max_list_size])
-    return output_list
-
-def ProgressBar(my_bar: st.progress, text: str) -> None:
-    progress_bar_thread = th.Thread(target = UpdateProgressBar, args=(my_bar, text))
-    add_script_run_ctx(progress_bar_thread)
-    progress_bar_thread.start()
-
-def UpdateProgressBar(progress_bar: st.progress, text: str) -> None:
-        while True:
-            progress_bar.progress(int(st.session_state.x), text=text)
-            if st.session_state.kill_progress_bar:
-                progress_bar.progress(100, text=text)
-                time.sleep(0.2)
-                progress_bar.empty()
-                st.session_state.x = 0
-                st.session_state.kill_progress_bar = False
-                return
+    @staticmethod   
+    async def process_data(response, increment) -> dict:
+        html = await AsynchronousFunctions.FormatHTML(response)
+        output = {"Adresa" : None, "Cena" : None }
+        tag_futures = []
+        for tag, attribute, key in [["a", {"href": "#mapa"}, "Adresa"], ["strong", {"class": "h4"}, "Cena"]]:
+            html_tag = html.find_all(tag, attribute)
+            tag_future = asyncio.ensure_future(loop.run_in_executor(None, html_tag[0].get_text)) if html_tag else None
+            tag_futures.append(tag_future)
+        Progress.AddProgress(increment)
+        tag_texts = await asyncio.gather(*tag_futures)
+        for key, text in zip(["Adresa", "Cena"], tag_texts):
+            if text:
+                output[key] = text
+        nemovitost_parametry = html.select("div.paramsTable")
+        for table in nemovitost_parametry:
+            for element in table.find_all("tr"):
+                th = element.find("th").text
+                td = element.find("td").text
+                output.update({th : td})               
+        return output
 
 def main(location: str):
-    progress_bar_1 = st.progress(0, text="Zpracování požadavku...")
-    ProgressBar(progress_bar_1, "Zpracování požadavku...")
+    progress_bar_1 = Progress("Zpracování požadavku...")
+    progress_bar_1.Run()
     
     time_start = time.time()
     query_values = SearchForQueryValues(location).GetQueryValues()
@@ -115,7 +131,7 @@ def main(location: str):
     search_query = SearchQuery.BuildSearchQuery(st.session_state.chci, query_values)
     print(time.time() - time_start)
 
-    ProgressStatus(5)
+    Progress.AddProgress(5)
 
     number_of_pages = SearchQuery(search_query).NumberOfPages()
     print(time.time() - time_start)
@@ -127,10 +143,10 @@ def main(location: str):
         search_queries.append(f"{search_query}&page={page}")
     print(time.time() - time_start)
 
-    ProgressStatus(20)
+    Progress.AddProgress(20)
     increment = 70 / len(search_queries)
 
-    tasks = [send_request(url, increment) for url in search_queries]
+    tasks = [AsynchronousFunctions.send_request(url, increment) for url in search_queries]
     responses_1 = loop.run_until_complete(asyncio.gather(*tasks))
     print(time.time() - time_start)
 
@@ -141,25 +157,24 @@ def main(location: str):
             article_list.append(link.find("a").get("href"))
     print(time.time() - time_start)
 
-    ProgressStatus(5)
-    st.session_state.kill_progress_bar = True
-
+    Progress.AddProgress(5)
+    progress_bar_1.Kill()
     time.sleep(0.3)
 
-    progress_bar_2 = st.progress(0, text="Vyhledávání...")
-    ProgressBar(progress_bar_2, "Vyhledávání...")
+    progress_bar_2 = Progress("Vyhledávání...")
+    progress_bar_2.Run()
     increment = 100 / (len(article_list) * 2)
     
     if len(article_list) > 200:
-        article_lists = split_list(article_list)
+        article_lists = Functions.split_list(article_list)
         responses = []
         for articles in article_lists:
-            tasks = [send_request(url, increment) for url in articles]
+            tasks = [AsynchronousFunctions.send_request(url, increment) for url in articles]
             responses_2 = loop.run_until_complete(asyncio.gather(*tasks))
             responses.extend(responses_2)
             print(time.time() - time_start)
 
-        tasks = [process_data(resp, increment) for resp in responses]
+        tasks = [AsynchronousFunctions.process_data(resp, increment) for resp in responses]
         results = loop.run_until_complete(asyncio.gather(*tasks))
             
         print(time.time() - time_start)
@@ -168,15 +183,15 @@ def main(location: str):
         for item in results:
             df = pd.concat([df, pd.DataFrame.from_dict([item])])
 
-        st.session_state.kill_progress_bar = True
+        progress_bar_2.Kill()
 
         return df
     else:
-        tasks = [send_request(url, increment) for url in article_list]
+        tasks = [AsynchronousFunctions.send_request(url, increment) for url in article_list]
         responses_2 = loop.run_until_complete(asyncio.gather(*tasks))
         print(time.time() - time_start)
 
-        tasks = [process_data(resp, increment) for resp in responses_2]
+        tasks = [AsynchronousFunctions.process_data(resp, increment) for resp in responses_2]
         results = loop.run_until_complete(asyncio.gather(*tasks))
             
         print(time.time() - time_start)
@@ -185,18 +200,25 @@ def main(location: str):
         for item in results:
             df = pd.concat([df, pd.DataFrame.from_dict([item])])
 
-        st.session_state.kill_progress_bar = True
-
+        progress_bar_2.Kill()
+        
         return df
     
 def search():
     if st.session_state.okres == []:
-        df = main(st.session_state.kraj)
-        st.dataframe(df)
+        st.session_state.df = main(st.session_state.kraj)
+
     else:
+        dataframes = []
         for okres in st.session_state.okres:
-            df = main(okres)
-            st.dataframe(df)
+            dataframes.append(main(okres))
+        df = pd.DataFrame()
+        for dataframe in dataframes:
+            df = pd.concat([df, dataframe])
+        st.session_state.df = df
+
+
+# ----------------------------------------------------------------------------
 
 # Kontrola, zda existuje soubor kraje.txt
 try:
@@ -234,13 +256,16 @@ if (st.session_state.kraj == "Hlavní město Praha") or (st.session_state.kraj =
     st.session_state.okres_selectbox_active = True
     seznam_okresu = ["Žádné okresy"]
 
+# ----------------------------------------------------------------------------
+
+# Stránka
+
 with st.sidebar:
     st.write(st.session_state.kraj)
-    chci_selectbox = st.selectbox(label="CHCI", options=["Prodej", "Pronájem"], key="chci")
-    kraj_selectbox = st.selectbox(label="KRAJ", options=kraje, key="kraj")
+    chci_selectbox = st.selectbox(label="CHCI", options=["Prodej", "Pronájem"], key="chci", disabled=st.session_state.disabled)
+    kraj_selectbox = st.selectbox(label="KRAJ", options=kraje, key="kraj", disabled=st.session_state.disabled)
     okres_multiselect = st.multiselect(label="OKRES", options=seznam_okresu, key="okres", disabled=st.session_state.okres_selectbox_active)
-    vyhledat_button = st.button(label="VYHLEDAT", key="vyhledat")
-    #cena_slider = st.slider(label="CENA", min_value=0, max_value=100, value=(0,100), key="cena")
+    vyhledat_button = st.button(label="VYHLEDAT", key="vyhledat", disabled=st.session_state.disabled)
 
 button_style = """
         <style>
@@ -252,18 +277,21 @@ button_style = """
 st.markdown(button_style, unsafe_allow_html=True)
 
 if vyhledat_button:
+    st.session_state.disabled = True
+    st.session_state.execute = True
+    st.experimental_rerun()
+
+if st.session_state.execute:  
     loop = asyncio.ProactorEventLoop()
     asyncio.set_event_loop(loop)
-
-    st.session_state.kill_progress_bar = False
-    st.session_state.x = 0
-
     search()
     loop.close()
+    st.session_state.disabled = False
+    st.session_state.execute = False
+    st.experimental_rerun()
 
-            
-
-
+if "df" in st.session_state:
+    st.dataframe(st.session_state.df)
 
 
 
