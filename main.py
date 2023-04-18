@@ -45,6 +45,7 @@ for item in session_states_list:
 
 # ----------------------------------------------------------------------------
 
+# Funkce a třídy
 class Progress():
     def __init__(self, text) -> None:
         self.text = text
@@ -120,151 +121,126 @@ class AsynchronousFunctions():
                 output.update({th : td})               
         return output
 
-def main(location: str):
-    progress_bar_1 = Progress("Zpracování požadavku...")
-    progress_bar_1.Run()
-    
-    time_start = time.time()
-    query_values = SearchForQueryValues(location).GetQueryValues()
-    print(time.time() - time_start)
+class MainFunctions():
+    @staticmethod
+    def main(location: str):
+        progress_bar_1 = Progress("Zpracování požadavku...")
+        progress_bar_1.Run()
+        
+        time_start = time.time()
+        query_values = SearchForQueryValues(location).GetQueryValues()
+        print(time.time() - time_start)
 
-    search_query = SearchQuery.BuildSearchQuery(st.session_state.chci, query_values)
-    print(time.time() - time_start)
+        search_query = SearchQuery.BuildSearchQuery(st.session_state.chci, query_values)
+        print(time.time() - time_start)
 
-    Progress.AddProgress(5)
+        Progress.AddProgress(5)
 
-    number_of_pages = SearchQuery(search_query).NumberOfPages()
-    print(time.time() - time_start)
+        number_of_pages = SearchQuery(search_query).NumberOfPages()
+        print(time.time() - time_start)
 
-    article_list = []
-    search_queries = []
+        article_list = []
+        search_queries = []
 
-    for page in range(1, number_of_pages + 1):
-        search_queries.append(f"{search_query}&page={page}")
-    print(time.time() - time_start)
+        for page in range(1, number_of_pages + 1):
+            search_queries.append(f"{search_query}&page={page}")
+        print(time.time() - time_start)
 
-    Progress.AddProgress(20)
-    increment = 70 / len(search_queries)
+        Progress.AddProgress(20)
+        increment = 70 / len(search_queries)
 
-    tasks = [AsynchronousFunctions.send_request(url, increment) for url in search_queries]
-    responses_1 = loop.run_until_complete(asyncio.gather(*tasks))
-    print(time.time() - time_start)
+        tasks = [AsynchronousFunctions.send_request(url, increment) for url in search_queries]
+        responses_1 = loop.run_until_complete(asyncio.gather(*tasks))
+        print(time.time() - time_start)
 
-    for response in responses_1:
-        html = bs.BeautifulSoup(response, features="html.parser")
-        html_article_list = html.find_all("article")
-        for link in html_article_list:
-            article_list.append(link.find("a").get("href"))
-    print(time.time() - time_start)
+        for response in responses_1:
+            html = bs.BeautifulSoup(response, features="html.parser")
+            html_article_list = html.find_all("article")
+            for link in html_article_list:
+                article_list.append(link.find("a").get("href"))
+        print(time.time() - time_start)
 
-    Progress.AddProgress(5)
-    progress_bar_1.Kill()
-    time.sleep(0.3)
+        Progress.AddProgress(5)
+        progress_bar_1.Kill()
+        time.sleep(0.3)
 
-    progress_bar_2 = Progress("Vyhledávání...")
-    progress_bar_2.Run()
-    increment = 100 / (len(article_list) * 2)
-    
-    if len(article_list) > 200:
-        article_lists = Functions.split_list(article_list)
-        responses = []
-        for articles in article_lists:
-            tasks = [AsynchronousFunctions.send_request(url, increment) for url in articles]
-            responses_2 = loop.run_until_complete(asyncio.gather(*tasks))
-            responses.extend(responses_2)
+        progress_bar_2 = Progress("Vyhledávání...")
+        progress_bar_2.Run()
+        increment = 100 / (len(article_list) * 2)
+        
+        if len(article_list) > 200:
+            article_lists = Functions.split_list(article_list)
+            responses = []
+            for articles in article_lists:
+                tasks = [AsynchronousFunctions.send_request(url, increment) for url in articles]
+                responses_2 = loop.run_until_complete(asyncio.gather(*tasks))
+                responses.extend(responses_2)
+                print(time.time() - time_start)
+
+            tasks = [AsynchronousFunctions.process_data(resp, increment) for resp in responses]
+            results = loop.run_until_complete(asyncio.gather(*tasks))
+                
             print(time.time() - time_start)
 
-        tasks = [AsynchronousFunctions.process_data(resp, increment) for resp in responses]
-        results = loop.run_until_complete(asyncio.gather(*tasks))
+            df = pd.DataFrame()
+            for item in results:
+                df = pd.concat([df, pd.DataFrame.from_dict([item])])
+
+            progress_bar_2.Kill()
+
+            return df
+        else:
+            tasks = [AsynchronousFunctions.send_request(url, increment) for url in article_list]
+            responses_2 = loop.run_until_complete(asyncio.gather(*tasks))
+            print(time.time() - time_start)
+
+            tasks = [AsynchronousFunctions.process_data(resp, increment) for resp in responses_2]
+            results = loop.run_until_complete(asyncio.gather(*tasks))
+                
+            print(time.time() - time_start)
+
+            df = pd.DataFrame()
+            for item in results:
+                df = pd.concat([df, pd.DataFrame.from_dict([item])])
+
+            progress_bar_2.Kill()
             
-        print(time.time() - time_start)
+            return df
+    @staticmethod  
+    def search():
+        if st.session_state.okres == []:
+            st.session_state.df = MainFunctions.main(st.session_state.kraj)
 
-        df = pd.DataFrame()
-        for item in results:
-            df = pd.concat([df, pd.DataFrame.from_dict([item])])
-
-        progress_bar_2.Kill()
-
-        return df
-    else:
-        tasks = [AsynchronousFunctions.send_request(url, increment) for url in article_list]
-        responses_2 = loop.run_until_complete(asyncio.gather(*tasks))
-        print(time.time() - time_start)
-
-        tasks = [AsynchronousFunctions.process_data(resp, increment) for resp in responses_2]
-        results = loop.run_until_complete(asyncio.gather(*tasks))
-            
-        print(time.time() - time_start)
-
-        df = pd.DataFrame()
-        for item in results:
-            df = pd.concat([df, pd.DataFrame.from_dict([item])])
-
-        progress_bar_2.Kill()
-        
-        return df
-    
-def search():
-    if st.session_state.okres == []:
-        st.session_state.df = main(st.session_state.kraj)
-
-    else:
-        dataframes = []
-        for okres in st.session_state.okres:
-            dataframes.append(main(okres))
-        df = pd.DataFrame()
-        for dataframe in dataframes:
-            df = pd.concat([df, dataframe])
-        st.session_state.df = df
+        else:
+            dataframes = []
+            for okres in st.session_state.okres:
+                dataframes.append(MainFunctions.main(okres))
+            df = pd.DataFrame()
+            for dataframe in dataframes:
+                df = pd.concat([df, dataframe])
+            st.session_state.df = df
 
 
 # ----------------------------------------------------------------------------
 
-# Kontrola, zda existuje soubor kraje.txt
-try:
-    with open("kraje.txt", "rb") as file:
-        # Formátování krajů z byte stringu zpátky na seznam
-        kraje = file.read().decode("windows-1250")[1:-1].replace("'", "").split(", ")
-except:
-    Lokality().Kraje()
-    with open("kraje.txt", "rb") as file:
-        kraje = file.read().decode("windows-1250")[1:-1].replace("'", "").split(", ")
-
-# Kontrola, zda existuje soubor okres.txt
-try:
-    with open("okresy.txt", "rb") as file:
-        # Formátování krajů z byte stringu zpátky na slovník
-        okresy_1 = file.read().decode("windows-1250")[1:-1].replace("'", "").split(", ")
-        
-except:
-    Lokality().Okresy()
-    with open("okresy.txt", "rb") as file:
-        okresy = file.read().decode("windows-1250")[1:-1].replace("'", "").split(", ")
-
-okresy = {}
-for okres in okresy_1:
-    okres = okres.split(" : ")
-    okresy.update({okres[0] : okres[1]})
+# session_state Kraje a Okresy
+lokality = Lokality()
+st.session_state.kraje = lokality.Kraje()
+st.session_state.okresy = lokality.Okresy()
 
 seznam_okresu = []
-for key, value in sorted(okresy.items()):
+for key, value in sorted(st.session_state.okresy.items()):
     if value == st.session_state.kraj:
         seznam_okresu.append(key)
-        st.session_state.okres_selectbox_active = False
-
-if (st.session_state.kraj == "Hlavní město Praha") or (st.session_state.kraj == None):
-    st.session_state.okres_selectbox_active = True
-    seznam_okresu = ["Žádné okresy"]
 
 # ----------------------------------------------------------------------------
 
 # Stránka
-
 with st.sidebar:
     st.write(st.session_state.kraj)
     chci_selectbox = st.selectbox(label="CHCI", options=["Prodej", "Pronájem"], key="chci", disabled=st.session_state.disabled)
-    kraj_selectbox = st.selectbox(label="KRAJ", options=kraje, key="kraj", disabled=st.session_state.disabled)
-    okres_multiselect = st.multiselect(label="OKRES", options=seznam_okresu, key="okres", disabled=st.session_state.okres_selectbox_active)
+    kraj_selectbox = st.selectbox(label="KRAJ", options=st.session_state.kraje, key="kraj", disabled=st.session_state.disabled)
+    okres_multiselect = st.multiselect(label="OKRES", options=seznam_okresu, key="okres", disabled=st.session_state.disabled)
     vyhledat_button = st.button(label="VYHLEDAT", key="vyhledat", disabled=st.session_state.disabled)
 
 button_style = """
@@ -284,7 +260,7 @@ if vyhledat_button:
 if st.session_state.execute:  
     loop = asyncio.ProactorEventLoop()
     asyncio.set_event_loop(loop)
-    search()
+    MainFunctions.search()
     loop.close()
     st.session_state.disabled = False
     st.session_state.execute = False

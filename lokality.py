@@ -2,7 +2,7 @@ import requests as req
 import bs4 as bs
 
 class Lokality():
-    def __init__(self):
+    def __init__(self) -> None:
         url = "https://www.statnisprava.cz/rstsp/redakce.nsf/i/kraje_okresy_obce"
         response = req.get(url)
         html = bs.BeautifulSoup(response.text, features="html.parser")
@@ -13,30 +13,25 @@ class Lokality():
         for lokalita in lokality:
             self.seznam_lokalit.append(lokalita.get_text())
             
-    def Kraje(self):
+    def Kraje(self) -> list:
         kraje = self.seznam_lokalit[0:14]
-        with open("kraje.txt", "wb") as file:
-            data = str(kraje).encode("windows-1250")
-            file.write(data)
-            file.close()
+        return kraje
 
     def Okresy(self):
-        okresy_1 = self.seznam_lokalit[14:]
-        okresy_1.remove("Praha (Hlavní město Praha)")
-
+        seznam_okresu = self.seznam_lokalit[14:]
+        seznam_okresu.remove("Praha (Hlavní město Praha)")
         okresy = {}
-        for okres in okresy_1:
+        for okres in seznam_okresu:
             okres = okres.split("(")
             okresy.update({okres[0] : okres[1][:-1]})
-
-        with open("okresy.txt", "wb") as file:
-            data = str(okresy).encode("windows-1250")
-            file.write(data)
-            file.close()
-
+        return okresy
+        
 if __name__ == "__main__":
-    Lokality().Kraje()
-    Lokality().Okresy()
+    object = Lokality()
+    kraje = object.Kraje()
+    okresy = object.Okresy()
+    print(kraje)
+    print(okresy)
 
     
 
