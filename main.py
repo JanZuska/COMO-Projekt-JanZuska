@@ -6,7 +6,7 @@ __date__ = "2023/4/17"
 __copyright__ = "Copyright 2023, Jan Zuska"
 __credits__ = []
 __license__ = "GPLv3"
-__version__ = "1.0.1"
+__version__ = "2.1.0"
 __maintainer__ = "Jan Zuska"
 __email__ = "zuskan@post.cz"
 __status__ = "Production"
@@ -258,7 +258,7 @@ if vyhledat_button:
     st.experimental_rerun()
 
 if st.session_state.execute:  
-    loop = asyncio.ProactorEventLoop()
+    loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     MainFunctions.search()
     loop.close()
