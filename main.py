@@ -8,7 +8,7 @@ __credits__ = []
 __license__ = "GPLv3"
 __version__ = "2.1.0"
 __maintainer__ = "Jan Zuska"
-__email__ = "zuskan@post.cz"
+__email__ = "jan.zuska.04@gmail.com"
 __status__ = "Production"
 # ----------------------------------------------------------------------------
 # standard library
@@ -78,6 +78,46 @@ class Progress():
         print(f"{st.session_state.progress}%")
         return
 
+class GUI():
+    def __init__(self, df) -> None:
+        self.df = df
+        self.price_limits = self.get_limits(self.df, "Cena")
+        self.plocha_limits = self.get_limits(self.df, "Plocha")
+        self.limits = [self.price_limits, self.plocha_limits]
+        self.dataframe = None
+
+    def create_gui(self):
+        self.cena_slider = st.slider(label="Cena", min_value=self.price_limits[0], max_value=self.price_limits[1], value=(self.price_limits[0], self.price_limits[1]), key="cena_filtr")
+        self.plocha_slider = st.slider(label="Plocha", min_value=self.plocha_limits[0], max_value=self.plocha_limits[1], value=(self.plocha_limits[0], self.plocha_limits[1]), key="plocha_filtr")
+    
+    @staticmethod
+    def format_something(something: str):
+        something = str(something)
+        if "\xa0" in something:
+            something = something.replace("\xa0", "")
+        if " " in something:
+            something = something.replace(" ", "")
+        something = something[:-2]
+        return int(something)
+
+    @staticmethod
+    def get_limits(df: pd.DataFrame, column: str) -> int:
+        limits_list: list = df[column].to_list()
+        formated_limits_list: list = list(map(lambda x: GUI.format_something(x), limits_list))
+        min_limit = min(formated_limits_list)
+        max_limit = max(formated_limits_list)
+        return tuple((min_limit, max_limit))
+
+    @staticmethod
+    def filter(df, limit, column: str, jednotka: str):
+        df[column]: pd.DataFrame = df[column].apply(lambda x: GUI.format_something(x))
+        new_df: pd.DataFrame = df.loc[df[column].between(limit[0], limit[1])]
+        new_df[column]: pd.DataFrame = new_df[column].apply(lambda x: f"{x:,} {jednotka}".replace(",", " "))
+        return new_df
+
+
+    
+
 class Functions():
     @staticmethod
     def split_list(input_list: list, max_list_size: int = 200) -> list:
@@ -91,7 +131,6 @@ class AsynchronousFunctions():
     async def FormatHTML(html: str) -> bs.BeautifulSoup:
         soup = bs.BeautifulSoup(html, "html.parser")
         return soup
-
     @staticmethod
     async def send_request(url, increment) -> str:
         async with aiohttp.ClientSession() as session:
@@ -209,7 +248,8 @@ class MainFunctions():
     @staticmethod  
     def search():
         if st.session_state.okres == []:
-            st.session_state.df = MainFunctions.main(st.session_state.kraj)
+            df = MainFunctions.main(st.session_state.kraj)
+            st.session_state.gui = GUI(df.set_index(df.columns[2]))
 
         else:
             dataframes = []
@@ -218,7 +258,7 @@ class MainFunctions():
             df = pd.DataFrame()
             for dataframe in dataframes:
                 df = pd.concat([df, dataframe])
-            st.session_state.df = df
+            st.session_state.gui = GUI(df.set_index(df.columns[2]))
 
 
 # ----------------------------------------------------------------------------
@@ -237,7 +277,7 @@ for key, value in sorted(st.session_state.okresy.items()):
 
 # Stránka
 with st.sidebar:
-    st.write(st.session_state.kraj)
+    st.write("VYHLEDÁVÁNÍ")
     chci_selectbox = st.selectbox(label="CHCI", options=["Prodej", "Pronájem"], key="chci", disabled=st.session_state.disabled)
     kraj_selectbox = st.selectbox(label="KRAJ", options=st.session_state.kraje, key="kraj", disabled=st.session_state.disabled)
     okres_multiselect = st.multiselect(label="OKRES", options=seznam_okresu, key="okres", disabled=st.session_state.disabled)
@@ -255,6 +295,12 @@ st.markdown(button_style, unsafe_allow_html=True)
 if vyhledat_button:
     st.session_state.disabled = True
     st.session_state.execute = True
+    if st.session_state.okres == []:
+        st.session_state.header = f"NEMOVITOSTI Z KRAJE: {st.session_state.kraj}"
+    elif len(st.session_state.okres) == 1:
+        st.session_state.header = f"NEMOVITOSTI Z OKRESU: {', '.join(st.session_state.okres)}"
+    else:
+        st.session_state.header = f"NEMOVITOSTI Z OKRESŮ: {', '.join(st.session_state.okres)}"
     st.experimental_rerun()
 
 if st.session_state.execute:  
@@ -266,8 +312,33 @@ if st.session_state.execute:
     st.session_state.execute = False
     st.experimental_rerun()
 
-if "df" in st.session_state:
-    st.dataframe(st.session_state.df)
+# Rozhraní pro filtrování tabulky
+if "gui" in st.session_state:
+    gui: GUI = st.session_state.gui
+    container = st.container()
+    with container:
+        header = st.header(st.session_state.header)
+    gui.create_gui()
+    
+    if [st.session_state.cena_filtr, st.session_state.plocha_filtr] == gui.limits:
+        with container:
+            gui.dataframe = st.dataframe(gui.df)
+    else:
+        temp_df = gui.df.copy()
+        temp_df = gui.filter(temp_df, st.session_state.cena_filtr, "Cena", "Kč")
+        temp_df = gui.filter(temp_df, st.session_state.plocha_filtr, "Plocha", "m²")
+        with container:
+            gui.dataframe = st.dataframe(temp_df)
+
+
+            
+    
+    
+
+
+
+
+
 
 
 

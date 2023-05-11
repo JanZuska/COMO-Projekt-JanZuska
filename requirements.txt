@@ -1,4 +1,7 @@
-streamlit
-pandas
 aiohttp
+asyncio
 bs4
+pandas==1.5.3
+streamlit
+typing
+snowflake-sqlalchemy
