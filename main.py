@@ -81,27 +81,41 @@ class Progress():
 class GUI():
     def __init__(self, df) -> None:
         self.df = df
+        # Slider filters
         self.price_limits = self.get_limits(self.df, "Cena")
         self.plocha_limits = self.get_limits(self.df, "Plocha")
         self.limits = [self.price_limits, self.plocha_limits]
+        # Select filters
+        self.dispozice = self.get_options(self.df, "Dispozice")
+        self.stav = self.get_options(self.df, "Stav")
+        self.options = ["Cena", "Dispozice", "Podlaží", "Plocha"]
         self.dataframe = None
 
     def create_gui(self):
-        self.cena_slider = st.slider(label="Cena", min_value=self.price_limits[0], max_value=self.price_limits[1], value=(self.price_limits[0], self.price_limits[1]), key="cena_filtr")
-        self.plocha_slider = st.slider(label="Plocha", min_value=self.plocha_limits[0], max_value=self.plocha_limits[1], value=(self.plocha_limits[0], self.plocha_limits[1]), key="plocha_filtr")
-    
+        filtrovat = st.write("Filtrovat nemovitosti:")
+        self.cena_slider = st.slider(label="Cena (Kč)", min_value=self.price_limits[0], max_value=self.price_limits[1], value=(self.price_limits[0], self.price_limits[1]), key="cena_filtr")
+        self.plocha_slider = st.slider(label="Plocha (m²)", min_value=self.plocha_limits[0], max_value=self.plocha_limits[1], value=(self.plocha_limits[0], self.plocha_limits[1]), key="plocha_filtr")
+        self.dispozice_select = st.multiselect(label="Dispozice", options=self.dispozice, key="dispozice_filtr")
+        self.stav_select = st.multiselect(label="Stav", options=self.stav, key="stav_filtr")
+        radit = st.write("Řadit nemovitosti")
+        self.radit_select = st.multiselect(label="Řadit dle", options=self.options, key="radit")
+
+    def radio(self, dle):
+        st.radio(label=f"Řadit dle {dle}", options=["Vzestupně", "Sestupně"], key=f"razeni_{dle}")
+
     @staticmethod
     def format_something(something: str):
         something = str(something)
-        if "\xa0" in something:
+        if "\xa0" or " " in something:
             something = something.replace("\xa0", "")
-        if " " in something:
             something = something.replace(" ", "")
-        something = something[:-2]
-        return int(something)
+            something = something[:-2]
+            return int(something)
+        else:
+            return something
 
     @staticmethod
-    def get_limits(df: pd.DataFrame, column: str) -> int:
+    def get_limits(df: pd.DataFrame, column: str) -> tuple:
         limits_list: list = df[column].to_list()
         formated_limits_list: list = list(map(lambda x: GUI.format_something(x), limits_list))
         min_limit = min(formated_limits_list)
@@ -109,14 +123,39 @@ class GUI():
         return tuple((min_limit, max_limit))
 
     @staticmethod
-    def filter(df, limit, column: str, jednotka: str):
+    def filter_with_select_slider(df, limit, column: str, jednotka: str):
         df[column]: pd.DataFrame = df[column].apply(lambda x: GUI.format_something(x))
         new_df: pd.DataFrame = df.loc[df[column].between(limit[0], limit[1])]
         new_df[column]: pd.DataFrame = new_df[column].apply(lambda x: f"{x:,} {jednotka}".replace(",", " "))
         return new_df
-
-
     
+    @staticmethod
+    def get_options(df: pd.DataFrame, column: str) -> list:
+        options_list = df[column].to_list()
+        options = []
+        for x in options_list:
+            if x not in options:
+                options.append(x)
+        return sorted(options)
+    
+    @staticmethod
+    def filter_with_select_box(df, options, column):
+        new_df: pd.DataFrame = df.loc[df[column].isin(options)]
+        return new_df
+    
+    @staticmethod
+    def sort_values(df: pd.DataFrame, column, zpusob):
+        df[column]: pd.DataFrame = df[column].apply(lambda x: GUI.format_something(x))
+        if zpusob == "Vzestupně":
+            new_df: pd.DataFrame = df.loc[:,:].sort_values(column, ascending=True)
+        elif zpusob == "Sestupně":
+            new_df: pd.DataFrame = df.loc[:,:].sort_values(column, ascending=False)
+        if column == "Cena":
+            new_df["Cena"]: pd.DataFrame = new_df["Cena"].apply(lambda x: f"{x:,} Kč".replace(",", " "))
+        if column == "Dispozice":
+            new_df["Dispozice"]: pd.DataFrame = new_df["Dispozice"].apply(lambda x: f"{x:,} m²".replace(",", " "))
+        return new_df
+
 
 class Functions():
     @staticmethod
@@ -301,6 +340,8 @@ if vyhledat_button:
         st.session_state.header = f"NEMOVITOSTI Z OKRESU: {', '.join(st.session_state.okres)}"
     else:
         st.session_state.header = f"NEMOVITOSTI Z OKRESŮ: {', '.join(st.session_state.okres)}"
+    if "radit" in st.session_state:
+        st.session_state.radit = []
     st.experimental_rerun()
 
 if st.session_state.execute:  
@@ -320,13 +361,23 @@ if "gui" in st.session_state:
         header = st.header(st.session_state.header)
     gui.create_gui()
     
-    if [st.session_state.cena_filtr, st.session_state.plocha_filtr] == gui.limits:
+    if ([st.session_state.cena_filtr, st.session_state.plocha_filtr] == gui.limits) and not (st.session_state.dispozice_filtr or st.session_state.stav_filtr) and not st.session_state.radit:
         with container:
             gui.dataframe = st.dataframe(gui.df)
     else:
         temp_df = gui.df.copy()
-        temp_df = gui.filter(temp_df, st.session_state.cena_filtr, "Cena", "Kč")
-        temp_df = gui.filter(temp_df, st.session_state.plocha_filtr, "Plocha", "m²")
+        # Filtrace
+        temp_df = gui.filter_with_select_slider(temp_df, st.session_state.cena_filtr, "Cena", "Kč")
+        temp_df = gui.filter_with_select_slider(temp_df, st.session_state.plocha_filtr, "Plocha", "m²")
+        if st.session_state.dispozice_filtr:
+            temp_df = gui.filter_with_select_box(temp_df, st.session_state.dispozice_filtr, "Dispozice")
+        if st.session_state.stav_filtr:
+            temp_df = gui.filter_with_select_box(temp_df, st.session_state.stav_filtr, "Stav")
+        # Řazení
+        if st.session_state.radit:
+            for radit in st.session_state.radit:
+                gui.radio(radit)
+                temp_df = gui.sort_values(temp_df, radit, st.session_state[f"razeni_{radit}"])
         with container:
             gui.dataframe = st.dataframe(temp_df)
 
